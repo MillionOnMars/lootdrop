@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+LootDrop.app/Contents/MacOS/LootDrop
+LootDrop.app/Contents/_CodeSignature/
