@@ -1,6 +1,31 @@
+import AppKit
 import Foundation
 
 enum WindowFocuser {
+    /// Where a tap should take you.
+    ///
+    /// Before this, "focus" could only ever mean "find the Ghostty window
+    /// whose title contains `source`", which is useless for an event that has
+    /// no terminal behind it — a reminder, or anything raised by an app with a
+    /// window of its own. An explicit `target` overrides that; absent one the
+    /// old behaviour is unchanged.
+    static func route(target: String?, source: String) {
+        guard let target, !target.isEmpty else {
+            focus(source: source)
+            return
+        }
+        if let url = URL(string: target), url.scheme != nil {
+            NSWorkspace.shared.open(url)
+        } else if target.hasPrefix("bundle:") {
+            let id = String(target.dropFirst("bundle:".count))
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
+                NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+            }
+        } else {
+            focus(source: target)
+        }
+    }
+
     static func focus(source: String) {
         guard !source.isEmpty else { return }
 
@@ -17,13 +42,12 @@ enum WindowFocuser {
                         if title of w contains "\(safe)" then
                             perform action "AXRaise" of w
                             set frontmost to true
-                            return true
                         end if
                     end repeat
                 end tell
             end if
         end tell
-        return false
+        tell application "ghostty" to activate
         """
 
         DispatchQueue.global(qos: .userInitiated).async {

@@ -23,6 +23,11 @@ struct LootDropSettings: Codable {
     var customSoundsDir: String?     // optional custom sounds directory
     var driftMinutes: Int            // minutes before "forgotten session" alert
 
+    // Optional so that a settings.json written by an older build still decodes.
+    // A non-optional addition would throw, silently resetting every tuned sound
+    // back to defaults.
+    var doNotDisturbUntil: Date?     // nil = never muted; past date = expired
+
     static let `default` = LootDropSettings(
         flash: BehaviorSoundConfig(
             primarySound: "system:Bottle",
@@ -42,8 +47,24 @@ struct LootDropSettings: Codable {
         retentionDays: 7,
         port: 7777,
         customSoundsDir: nil,
-        driftMinutes: 20
+        driftMinutes: 20,
+        doNotDisturbUntil: nil
     )
+
+    /// True while notifications should make no sound and open no popover.
+    var isDoNotDisturbActive: Bool {
+        guard let until = doNotDisturbUntil else { return false }
+        return until > Date()
+    }
+
+    /// `nil` minutes means indefinitely; `0` or negative clears it.
+    mutating func setDoNotDisturb(minutes: Int?) {
+        if let minutes {
+            doNotDisturbUntil = minutes > 0 ? Date().addingTimeInterval(Double(minutes) * 60) : nil
+        } else {
+            doNotDisturbUntil = .distantFuture
+        }
+    }
 
     func config(for behavior: EventBehavior) -> BehaviorSoundConfig {
         switch behavior {

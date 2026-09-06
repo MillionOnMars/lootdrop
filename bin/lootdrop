@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Send events to a running LootDrop from anywhere.
+#
+#   lootdrop "Build finished"
+#   lootdrop remind 20m "get up and take a walk"
+#   lootdrop dnd 45m          # or: dnd on | dnd off
+#   lootdrop status
+#   lootdrop cancel           # drop every pending reminder
+set -euo pipefail
+
+PORT="${LOOTDROP_PORT:-7777}"
+HOST="http://localhost:${PORT}"
+
+die() { echo "lootdrop: $*" >&2; exit 1; }
+
+# 20m -> 1200, 2h -> 7200, 1h30m -> 5400, 90s -> 90, bare 20 -> 1200 (minutes).
+parse_duration() {
+  local spec="$1" total=0 num unit rest
+  [[ "$spec" =~ ^[0-9]+$ ]] && { echo $(( spec * 60 )); return; }
+  rest="$spec"
+  while [[ -n "$rest" ]]; do
+    [[ "$rest" =~ ^([0-9]+)([smhd])(.*)$ ]] || die "cannot read duration '$spec' (try 20m, 2h, 1h30m)"
+    num="${BASH_REMATCH[1]}"; unit="${BASH_REMATCH[2]}"; rest="${BASH_REMATCH[3]}"
+    case "$unit" in
+      s) total=$(( total + num )) ;;
+      m) total=$(( total + num * 60 )) ;;
+      h) total=$(( total + num * 3600 )) ;;
+      d) total=$(( total + num * 86400 )) ;;
+    esac
+  done
+  echo "$total"
+}
+
+# Builds JSON in python so a title with quotes or newlines cannot break out.
+post_event() {
+  python3 -c '
+import json, sys, urllib.request, urllib.error
+host, title = sys.argv[1], sys.argv[2]
+payload = {"type": sys.argv[3], "title": title, "behavior": sys.argv[4], "rarity": sys.argv[5]}
+if sys.argv[6]: payload["subtitle"] = sys.argv[6]
+if sys.argv[7]: payload["source"]   = sys.argv[7]
+if sys.argv[8]: payload["target"]   = sys.argv[8]
+if sys.argv[9] != "0": payload["delaySeconds"] = int(sys.argv[9])
+req = urllib.request.Request(host + "/event", data=json.dumps(payload).encode(),
+                             headers={"Content-Type": "application/json"}, method="POST")
+try:
+    with urllib.request.urlopen(req, timeout=5) as r: r.read()
+except urllib.error.URLError as e:
+    sys.exit("lootdrop: LootDrop is not answering on " + host + " (" + str(e.reason) + ")")
+' "$HOST" "$@"
+}
+
+usage() {
+  sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+[[ $# -eq 0 ]] && usage 1
+
+case "$1" in
+  -h|--help|help) usage ;;
+
+  remind)
+    shift
+    [[ $# -ge 2 ]] || die "usage: lootdrop remind <duration> <message>"
+    delay="$(parse_duration "$1")"; shift
+    msg="$*"
+    post_event "$msg" reminder persist epic "reminder" "" "" "$delay"
+    mins=$(( delay / 60 )); secs=$(( delay % 60 ))
+    printf 'reminder set: "%s" in %s\n' "$msg" \
+      "$( [[ $mins -gt 0 ]] && printf '%dm' "$mins"; [[ $secs -gt 0 ]] && printf '%ds' "$secs" )"
+    ;;
+
+  dnd)
+    shift
+    body='{"enabled":true}'
+    case "${1:-on}" in
+      on)  body='{"enabled":true}' ;;
+      off) body='{"enabled":false}' ;;
+      *)   body="{\"enabled\":true,\"minutes\":$(( $(parse_duration "$1") / 60 ))}" ;;
+    esac
+    curl -fsS -X POST "$HOST/dnd" -H 'Content-Type: application/json' -d "$body" \
+      || die "LootDrop is not answering on $HOST"
+    echo
+    ;;
+
+  status)
+    curl -fsS "$HOST/status" || die "LootDrop is not answering on $HOST"; echo ;;
+
+  cancel)
+    curl -fsS -X DELETE "$HOST/scheduled" || die "LootDrop is not answering on $HOST"; echo ;;
+
+  send)
+    shift; [[ $# -ge 1 ]] || die "usage: lootdrop send <title> [--subtitle s] [--rarity r] [--behavior b] [--source s] [--target t] [--in 20m]"
+    title="$1"; shift
+    sub=""; rarity="common"; behavior="flash"; source=""; target=""; delay=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --subtitle) sub="$2"; shift 2 ;;
+        --rarity)   rarity="$2"; shift 2 ;;
+        --behavior) behavior="$2"; shift 2 ;;
+        --source)   source="$2"; shift 2 ;;
+        --target)   target="$2"; shift 2 ;;
+        --in)       delay="$(parse_duration "$2")"; shift 2 ;;
+        *) die "unknown option '$1'" ;;
+      esac
+    done
+    post_event "$title" manual "$behavior" "$rarity" "$sub" "$source" "$target" "$delay"
+    ;;
+
+  *)
+    post_event "$*" manual flash common "" "" "" 0 ;;
+esac
