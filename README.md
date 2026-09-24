@@ -10,6 +10,10 @@ If you run multiple Claude Code (or other AI coding) sessions in parallel across
 
 LootDrop is your loot feed. Every event gets a sound, a rarity tier, and a tap target. You hear what happened, you see the feed, you tap to jump there. No more hunting through terminal tabs.
 
+| Event Feed | Settings |
+|:---:|:---:|
+| ![LootDrop event feed](docs/lootdrop-feed.png) | ![LootDrop settings](docs/lootdrop-settings.png) |
+
 ## Features
 
 **Three Notification Behaviors**
@@ -70,6 +74,34 @@ For tap-to-focus to work, LootDrop needs Accessibility access:
 4. Toggle it on
 
 ## Usage
+
+### Command Line
+
+`bin/lootdrop` talks to the running app. Symlink it onto your PATH:
+
+```bash
+ln -s "$PWD/bin/lootdrop" ~/bin/lootdrop
+```
+
+```bash
+lootdrop "Build finished"                        # fire an event now
+lootdrop remind 20m "get up and take a walk"     # fire one later
+lootdrop send "Deploy done" --rarity legendary --behavior persist
+lootdrop send "Standup" --in 1h30m               # any duration: 90s, 20m, 2h, 1h30m
+lootdrop dnd 45m                                 # mute for 45 minutes
+lootdrop dnd on | lootdrop dnd off               # mute indefinitely / resume
+lootdrop status                                  # {"dnd":false,"scheduled":2,...}
+lootdrop cancel                                  # drop every pending reminder
+```
+
+**Do Not Disturb** silences sounds and popovers without silencing the record — muted
+events still land in the feed and still count on the badge. The menubar icon changes to
+a moon while muted, because an app that has quietly stopped notifying you looks exactly
+like an app with nothing to say.
+
+**Reminders** are persisted to `~/.config/lootdrop/scheduled.json` and restored on
+launch. One you scheduled before a restart still fires; one whose time passed while the
+Mac was asleep fires on the next tick after it wakes, rather than being dropped.
 
 ### Sending Events
 

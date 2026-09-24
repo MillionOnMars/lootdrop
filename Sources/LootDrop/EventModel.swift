@@ -33,6 +33,9 @@ struct LootEvent: Identifiable, Codable {
     let timestamp: Date
     let behavior: EventBehavior
     var viewed: Bool
+    /// Optional routing hint. Absent means "focus the Ghostty window named by
+    /// `source`", which is all this app could ever do before.
+    var target: String?
 
     init(
         id: UUID = UUID(),
@@ -44,7 +47,8 @@ struct LootEvent: Identifiable, Codable {
         pid: Int? = nil,
         timestamp: Date = Date(),
         behavior: EventBehavior = .flash,
-        viewed: Bool = false
+        viewed: Bool = false,
+        target: String? = nil
     ) {
         self.id = id
         self.type = type
@@ -56,6 +60,7 @@ struct LootEvent: Identifiable, Codable {
         self.timestamp = timestamp
         self.behavior = behavior
         self.viewed = viewed
+        self.target = target
     }
 }
 
@@ -67,6 +72,8 @@ struct IncomingEvent: Codable {
     let source: String?
     let pid: Int?
     let behavior: String?  // "flash", "persist", "silent"
+    let target: String?        // where tapping should take you; see WindowFocuser
+    let delaySeconds: Int?     // fire this many seconds from now instead of now
 
     func toLootEvent() -> LootEvent {
         LootEvent(
@@ -76,8 +83,23 @@ struct IncomingEvent: Codable {
             rarity: Rarity(rawValue: rarity ?? "common") ?? .common,
             source: source ?? "",
             pid: pid,
-            behavior: EventBehavior(rawValue: behavior ?? "flash") ?? .flash
+            behavior: EventBehavior(rawValue: behavior ?? "flash") ?? .flash,
+            target: target
         )
     }
 
+}
+
+/// An event held until its time comes. Persisted so a reminder survives a
+/// restart of the app — a reminder that quietly evaporates is worse than none.
+struct ScheduledEvent: Codable, Identifiable {
+    let id: UUID
+    let fireAt: Date
+    let event: IncomingEvent
+
+    init(id: UUID = UUID(), fireAt: Date, event: IncomingEvent) {
+        self.id = id
+        self.fireAt = fireAt
+        self.event = event
+    }
 }

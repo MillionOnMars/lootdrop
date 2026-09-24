@@ -1,14 +1,34 @@
 import Foundation
 import Network
 
+/// Body of a POST /dnd request. Every field optional so the CLI can say
+/// "off" (`enabled: false`), "for 45 minutes" (`minutes: 45`) or "until I
+/// say otherwise" (`enabled: true`).
+struct DNDRequest: Codable {
+    let enabled: Bool?
+    let minutes: Int?
+}
+
 class EventServer {
     private var listener: NWListener?
     private let port: UInt16
     private let onEvent: @Sendable (IncomingEvent) -> Void
+    private let onDND: @Sendable (DNDRequest) -> String
+    private let onStatus: @Sendable () -> String
+    private let onClearScheduled: @Sendable () -> String
 
-    init(port: UInt16 = 7777, onEvent: @escaping @Sendable (IncomingEvent) -> Void) {
+    init(
+        port: UInt16 = 7777,
+        onEvent: @escaping @Sendable (IncomingEvent) -> Void,
+        onDND: @escaping @Sendable (DNDRequest) -> String,
+        onStatus: @escaping @Sendable () -> String,
+        onClearScheduled: @escaping @Sendable () -> String
+    ) {
         self.port = port
         self.onEvent = onEvent
+        self.onDND = onDND
+        self.onStatus = onStatus
+        self.onClearScheduled = onClearScheduled
     }
 
     func start() {
@@ -118,6 +138,30 @@ class EventServer {
             return
         }
 
+        if method == "GET" && path == "/status" {
+            sendResponse(connection: connection, status: "200 OK", body: onStatus())
+            return
+        }
+
+        if method == "DELETE" && path == "/scheduled" {
+            sendResponse(connection: connection, status: "200 OK", body: onClearScheduled())
+            return
+        }
+
+        if method == "POST" && path == "/dnd" {
+            let bodyStr = Self.body(of: raw)
+            // An empty body means "toggle indefinitely", so the CLI can just POST.
+            let request: DNDRequest
+            if let data = bodyStr.data(using: .utf8), !bodyStr.isEmpty,
+               let decoded = try? JSONDecoder().decode(DNDRequest.self, from: data) {
+                request = decoded
+            } else {
+                request = DNDRequest(enabled: true, minutes: nil)
+            }
+            sendResponse(connection: connection, status: "200 OK", body: onDND(request))
+            return
+        }
+
         if method == "POST" && path == "/event" {
             if let bodyRange = raw.range(of: "\r\n\r\n") {
                 let bodyStr = String(raw[bodyRange.upperBound...])
@@ -140,6 +184,12 @@ class EventServer {
         }
 
         sendResponse(connection: connection, status: "404 Not Found", body: "Not found")
+    }
+
+    /// The body of an HTTP request whose headers we have already seen in full.
+    private static func body(of raw: String) -> String {
+        guard let range = raw.range(of: "\r\n\r\n") else { return "" }
+        return String(raw[range.upperBound...])
     }
 
     private func sendResponse(connection: NWConnection, status: String, body: String) {

@@ -4,10 +4,16 @@ struct ContentView: View {
     @ObservedObject var store: EventStore
     @ObservedObject var settingsStore: SettingsStore
     @ObservedObject var soundPlayer: SoundPlayer
+    @ObservedObject var appState: AppState
     var onEventTapped: ((LootEvent) -> Void)?
+    var onToggleDND: (() -> Void)?
 
-    @State private var showSettings = false
     @State private var exportMessage: String?
+
+    // Lives on AppState, not @State: this view is hosted once and reused for
+    // the life of the app, so a @State flag here would survive every popover
+    // close and greet the next alert with the settings pane.
+    private var showSettings: Bool { appState.showSettings }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,8 +55,21 @@ struct ContentView: View {
                     }
                 }
                 Button {
+                    onToggleDND?()
+                } label: {
+                    Image(systemName: settingsStore.settings.isDoNotDisturbActive
+                          ? "moon.zzz.fill" : "moon")
+                        .foregroundColor(settingsStore.settings.isDoNotDisturbActive
+                                         ? .purple : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(settingsStore.settings.isDoNotDisturbActive
+                      ? "Do Not Disturb is on — click to resume"
+                      : "Do Not Disturb: silence sounds and popovers")
+
+                Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
-                        showSettings.toggle()
+                        appState.showSettings.toggle()
                     }
                 } label: {
                     Image(systemName: showSettings ? "xmark.circle.fill" : "gearshape.fill")
@@ -72,6 +91,18 @@ struct ContentView: View {
                 .padding(.vertical, 4)
                 .frame(maxWidth: .infinity)
                 .background(Color.green.opacity(0.1))
+            }
+
+            if settingsStore.settings.isDoNotDisturbActive {
+                HStack(spacing: 5) {
+                    Image(systemName: "moon.zzz.fill")
+                    Text(dndBannerText)
+                }
+                .font(.caption)
+                .foregroundColor(.purple)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .background(Color.purple.opacity(0.12))
             }
 
             Divider()
@@ -116,6 +147,13 @@ struct ContentView: View {
         .onAppear {
             store.markAllViewed()
         }
+    }
+
+    private var dndBannerText: String {
+        guard let until = settingsStore.settings.doNotDisturbUntil else { return "" }
+        if until == .distantFuture { return "Do Not Disturb — until you turn it off" }
+        let minutes = max(1, Int(until.timeIntervalSinceNow / 60))
+        return "Do Not Disturb — \(minutes)m left"
     }
 }
 
@@ -424,7 +462,7 @@ struct EventRow: View {
                             .foregroundColor(.secondary)
                     }
                     if !event.source.isEmpty {
-                        Text(event.source)
+                        Text(shortPath(event.source))
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundColor(.secondary.opacity(0.7))
                             .padding(.horizontal, 4)
@@ -449,6 +487,13 @@ struct EventRow: View {
         .padding(.vertical, 6)
         .opacity(event.viewed ? 0.5 : 1.0)
         .contentShape(Rectangle())
+    }
+
+    private func shortPath(_ path: String) -> String {
+        let components = path.split(separator: "/")
+        if components.count <= 2 { return path }
+        let suffix = components.suffix(3).joined(separator: "/")
+        return "…/" + suffix
     }
 
     private func relativeTime(_ date: Date) -> String {
